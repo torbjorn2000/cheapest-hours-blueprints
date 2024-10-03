@@ -1,0 +1,206 @@
+blueprint:
+  name: "Cheapest hours: Schedule calendar events"
+  description: >
+    Schedules the calendar entries for tomorrow following the configuration
+    for finding the cheapest hours from the Nordpool sensor.
+
+    The automation will be triggered when tomorrow's prices have been set (around 13h),
+    and also by a failsafe trigger at 22.50 if it was not triggered by the Nordpool
+    sensor for some reason.
+
+    When the automation runs (whatever it got triggered by), it will take use prices from
+    the Nordpool sensor if available, or the configured failsafe hours.
+
+    The automation is idempotent, it will not create calendar entries again if
+    already set for tomorrow.
+
+    This is part 1 of the cheapest hours automations. 
+    
+    This is a repackage of the Cheapest Hours Non-sequential by Toni Korhonen.
+    Original code: https://github.com/kotope/ha_nordpool_cheapest_hours/blob/main/advanced_cheapest_hours.yaml.
+    The core logic has remained untouched, but automations and sensors have been moved into
+    blueprints to make it easier to have multiple entites to control.
+  domain: automation
+  input:
+    first_hour:
+      name: First hour
+      description: Start of the time span for the cheapest hours
+      selector:
+        number:
+          min: 0
+          max: 23
+    last_hour:
+      name: Last hour
+      description: End of the time span for the cheapest hours
+      selector:
+        number:
+          min: 0
+          max: 23
+    number_of_hours:
+      name: Number of hours
+      description: Number of "cheapest hours" to schedule in the time span
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 24
+    failsafe_starting:
+      name: Failsafe starting
+      description: If the prices from Nordpool have not arrived, the entity will turn on at this hour
+      selector:
+        number:
+          min: 0
+          max: 23
+    starting_today:
+      name: Starting today
+      description: Is the first_hour today (true / false). If false, first_hour needs to be before last_hour.
+      default: false
+      selector:
+        boolean:
+    nordpool_sensor:
+      name: Nordpool sensor id
+      description: Nord pool sensor id. Check it ouf from your integrations page!
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    entity_id_to_flip:
+      name: Entity id to flip
+      description: The entity to turn on or off. Anything compatible with "homeassistant.turn_on" action.
+      selector:
+        entity:
+          filter:
+            - domain: switch
+            - domain: input_boolean
+    calendar:
+      name: Calendar
+      default: calendar.electricity
+      description: The calendar for scheduling. 
+      selector:
+        entity:
+          filter:
+            - domain: calendar
+    calendar_summary:
+      name: Calendar summary
+      description: The summary in the calendar events. Will be seen in visualizations and the logbook.
+
+variables:
+  first_hour_time: !input first_hour
+  last_hour_time: !input last_hour
+  starting_today_bool: !input starting_today
+  number_of_hours_int: !input number_of_hours
+  failsafe_starting_time: !input failsafe_starting
+  nordpool_sensor_id: !input nordpool_sensor
+  calendar_entity: !input calendar
+  calendar_entry_identifier: !input calendar_summary
+  list: >-
+    {%- if is_state_attr(nordpool_sensor_id, 'tomorrow_valid', true) -%}
+      {%- set sensor = (nordpool_sensor_id | string) -%}
+      {%- set numberOfHours = (number_of_hours_int | int) -%}
+      {%- set lastHour = (last_hour_time | int) -%}
+      {%- set firstHour = (first_hour_time | int) -%}
+      {%- set startingToday = (starting_today_bool | bool) -%}
+      {%- set ns = namespace(data=[], loopResult=[], res=[], loop=0) -%}
+
+      {%- if startingToday == true -%}{%- set ns.starting = firstHour -%}{%- else -%}{%- set ns.starting = firstHour + 24 -%}{%- endif -%}
+      {%- set ns.ending = lastHour + 24 + 1 -%}
+
+      {%- set arr = state_attr(sensor, 'today') + state_attr(sensor, 'tomorrow') -%}
+      {%- for i in range(ns.starting, ns.ending) -%}
+      {%- set start = (today_at("00:00") + timedelta( hours = i)) -%}
+      {%- set end = (today_at("00:00") + timedelta( hours = i+1)) -%}
+      {%- set ns.data = ns.data + [{
+        "start" : (start | as_timestamp | timestamp_local),
+        "end" : (end | as_timestamp | timestamp_local),
+        "price" : arr[i]}
+      ] -%}
+      {%- endfor -%}
+      {%- set ns.data = (ns.data | sort(attribute='price'))[:numberOfHours] | sort(attribute='start') -%}
+      {%- set ns.loopResult = ns.data -%}
+      {% for i in range(0, 48) %}
+        {%- set ns.loop = 0 -%}
+        {%- for i in range(ns.loopResult| length) -%}
+          {% if i < ns.loop %}
+            {%- continue -%}
+          {% endif %}
+          {%- if ns.loop+1 < (ns.loopResult | length) -%}
+            {%- if ns.loopResult[ns.loop].end == ns.loopResult[ns.loop+1].start -%}
+              {%- set d = {'start': (ns.loopResult[ns.loop].start), 'end': (ns.loopResult[ns.loop+1].end) } -%}
+              {%- set ns.loop = ns.loop + 1 -%}
+              {%- set ns.res = ns.res + [d] -%}
+            {%- else -%}
+              {%- set d = {'start': (ns.loopResult[ns.loop].start), 'end': (ns.loopResult[ns.loop].end) } -%}
+              {%- set ns.res = ns.res + [d] -%}
+            {%- endif -%}
+          {%- else -%}
+            {%- set d = {'start': (ns.loopResult[ns.loop].start), 'end': (ns.loopResult[ns.loop].end) } -%}
+            {%- set ns.res = ns.res + [d] -%}
+          {%- endif -%}
+          {%- set ns.loop = ns.loop + 1 -%}
+        {%- endfor -%}
+        {%- if ns.loopResult | count == ns.res | count -%}
+          {%- break -%}
+        {%- endif -%}
+        {%- set ns.loopResult = ns.res -%}
+        {%- set ns.res = [] -%}
+        {%- set ns.loop = 0 -%}
+      {% endfor %}
+      {{ ns.loopResult }}
+    {%- else -%}
+      # Failsafe
+      {%- set numberOfHours = number_of_hours_int | int -%}
+      {%- set start = failsafe_starting_time | string -%}
+      {%- set startTime = today_at(start) + timedelta( hours = 24) -%}
+      {%- set endTime = today_at(start) + timedelta( hours = 24 + numberOfHours) -%}
+      {%- set res =
+        {'start': (startTime | as_timestamp | timestamp_local),
+        'end': (endTime | as_timestamp | timestamp_local) }
+      -%}
+      [{{ res }}]
+    {%- endif -%}
+
+trigger:
+  # Tomorrows prices have arrived
+  - platform: state
+    entity_id: !input nordpool_sensor
+    attribute: tomorrow_valid
+    to: true
+    for:
+      seconds: 10 # The attributes must be set
+  # Failsafe trigger if the first one did not arrive
+  - platform: time
+    at: "22:50"
+
+action:
+  - action: calendar.get_events
+    alias: "Get tomorrow's events"
+    target:
+      entity_id: "{{calendar_entity}}"
+    data:
+      # From midnight. Room for improvement, maybe use "First hour" input in some way?
+      start_date_time: "{{ today_at() + timedelta(days=1) }}"
+      duration: 
+        days: 2
+    response_variable: tomorrow_events
+  - condition: template
+    alias: "No events created for tomorrow"
+    value_template: >
+      {% set events = tomorrow_events[calendar_entity]["events"]%}
+      {% for event in events %}
+        {% if calendar_entry_identifier in (event.summary) %}
+          {{ false }}
+        {% endif %}
+      {% endfor %}
+      {{ true }}
+  - repeat:
+      count: "{{ list | count }}"
+      sequence:
+        - action: calendar.create_event
+          data:
+            start_date_time: "{{ list[repeat.index-1].start | as_timestamp | timestamp_local }}"
+            end_date_time: "{{ list[repeat.index-1].end | as_timestamp | timestamp_local }}"
+            summary: "{{ calendar_entry_identifier }}"
+            description: !input entity_id_to_flip
+          target:
+            entity_id: "{{calendar_entity}}"
+mode: queued # There is something off with the parallelism of this.

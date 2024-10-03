@@ -1,0 +1,44 @@
+blueprint:
+  name: "Cheapest hours: Calendar trigger"
+  description: >
+    Will trigger on the calendar events, turning the entity
+    on or off. It will trigger on all events of the calendar set as parameter.
+    The entity to switch on or off will be in the description of the calendar event.
+
+    This is part 2 of the cheapest hours automations.
+
+    This is a repackage of the Cheapest Hours Non-sequential by Toni Korhonen.
+    Original code: https://github.com/kotope/ha_nordpool_cheapest_hours/blob/main/advanced_cheapest_hours.yaml.
+    The core logic has remained untouched, but automations and sensors have been moved into
+    blueprints to make it easier to have multiple entites to control.
+  domain: automation
+  input:
+    calendar:
+      name: Calendar
+      description: The calendar used for scheduling. Should be the same as the one in the "Schedule calendar events" automation.
+      selector:
+        entity:
+          filter:
+            - domain: calendar
+
+trigger:
+  - platform: calendar
+    event: start
+    entity_id: !input calendar
+  - platform: calendar
+    event: end
+    entity_id: !input calendar
+action:
+  - if:
+      - condition: template
+        value_template: "{{ trigger.event == 'start' }}"
+    then:
+      - action: homeassistant.turn_on
+        target:
+          entity_id: "{{ trigger.calendar_event.description }}"
+    else:
+      - action: homeassistant.turn_off
+        target:
+          entity_id: "{{ trigger.calendar_event.description }}"
+
+mode: single
