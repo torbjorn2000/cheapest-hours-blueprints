@@ -147,7 +147,6 @@ variables:
       {% endfor %}
       {{ ns.loopResult }}
     {%- else -%}
-      # Failsafe
       {%- set numberOfHours = number_of_hours_int | int -%}
       {%- set start = failsafe_starting_time | string -%}
       {%- set startTime = today_at(start) + timedelta( hours = 24) -%}
