@@ -46,11 +46,9 @@ blueprint:
           max: 24
     failsafe_starting:
       name: Failsafe starting
-      description: If the prices from Nordpool have not arrived, the entity will turn on at this hour
+      description: If the prices from Nordpool have not arrived, the entity will turn on at this time
       selector:
-        number:
-          min: 0
-          max: 23
+        time:
     starting_today:
       name: Starting today
       description: Is the first_hour today (true / false). If false, first_hour needs to be before last_hour.
@@ -93,7 +91,7 @@ variables:
   nordpool_sensor_id: !input nordpool_sensor
   calendar_entity: !input calendar
   calendar_entry_identifier: !input calendar_summary
-  list: >-
+  list: |
     {%- if is_state_attr(nordpool_sensor_id, 'tomorrow_valid', true) -%}
       {%- set sensor = (nordpool_sensor_id | string) -%}
       {%- set numberOfHours = (number_of_hours_int | int) -%}
@@ -157,7 +155,6 @@ variables:
       -%}
       [{{ res }}]
     {%- endif -%}
-
 trigger:
   # Tomorrows prices have arrived
   - platform: state
