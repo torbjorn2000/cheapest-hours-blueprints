@@ -41,4 +41,4 @@ action:
         target:
           entity_id: "{{ trigger.calendar_event.description }}"
 
-mode: single
+mode: parallel
